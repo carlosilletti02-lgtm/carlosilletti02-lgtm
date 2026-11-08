@@ -1,16 +1,26 @@
-## Hi there 👋
+# Hi, I'm Carlo Silletti! 👋
 
-<!--
-**carlosilletti02-lgtm/carlosilletti02-lgtm** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+🎓 Civil and Environmental Engineering Graduate  
+🏛️ Politecnico di Bari, Italy
 
-Here are some ideas to get you started:
+## About Me
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+I am a Civil and Environmental Engineering graduate with a strong interest in structural mechanics, numerical methods, and computational engineering.
+
+## Areas of Interest
+
+- Structural Analysis
+- Finite Element Method (FEM)
+- Computational Mechanics
+- Matrix Structural Analysis
+- Geographic Information Systems (GIS)
+- Global Navigation Satellite Systems (GNSS)
+
+## Projects
+
+**Telaio Cross Studio** — Educational project for the structural analysis of multi-story plane frames using the Cross Method and GNU Octave.
+
+## Education
+
+Bachelor's Degree in Civil and Environmental Engineering  
+Politecnico di Bari — September 2026
