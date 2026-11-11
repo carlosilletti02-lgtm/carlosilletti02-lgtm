@@ -1,0 +1,8 @@
+.venv/
+Risultati_V6/
+Esempio_risultato*/
+backup/
+*.pdf
+*cache.json
+__pycache__/
+.DS_Store

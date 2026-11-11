@@ -1,0 +1,51 @@
+CARTA OCR V6 - ISTRUZIONI (11 novembre 2026)
+============================================
+
+Tutto in locale: nessuna rete (il lanciatore la blocca a livello di sistema), nessun download,
+nessuna dipendenza nuova. Il PDF originale non viene mai modificato. V5 resta com'e'.
+
+COSA C'E' IN QUESTA CARTELLA
+  traduci_pdf_matematica_offline_v6.py   il motore (file NUOVO, autonomo)
+  avvia_v6.py                            lanciatore: cartella risultati ordinata + AVVISI.txt
+  lingua_deu.json                        liste del TEDESCO (validata su un libro)
+  lingua_eng.json                        liste dell'INGLESE (SPERIMENTALE, non ancora validata)
+
+PROVA SU UN NUOVO PDF
+  1) Apri il Terminale e incolla (cambia solo il percorso del PDF):
+
+     PY="$HOME/Library/Application Support/CartaOCR/runtime/bin/python3"
+     cd "$HOME/Desktop/CartaOCR_Progetto/05_V6_in_sviluppo"
+     "$PY" avvia_v6.py --pdf "/percorso/del/nuovo.pdf" --lingua deu --da 1 --a 10
+
+  2) --lingua: deu = tedesco, eng = inglese. Per un'altra lingua: copia lingua_deu.json in
+     lingua_xxx.json, cambia le liste (parole della lingua, titoli, glossario, esempi) e usa --lingua xxx.
+  3) --da/--a: pagine da tradurre. Se le ometti: le prime 10 (prova veloce).
+  4) Prova di sola impaginazione, senza tradurre (pochi secondi):  aggiungi --fake
+  5) Risultati in: Risultati_V6/<nome>_p<da>-<a>_<data ora>/
+       <nome>_italiano.pdf    il PDF tradotto (ogni pagina riporta la pagina originale)
+       AVVISI.txt             cio' che il programma ha riconosciuto come dubbio
+       rapporto.json, cache.json, esecuzione.log
+
+IL PDF DEVE AVERE IL TESTO DIGITALE (selezionabile). Se e' una scansione, prima l'OCR con Carta OCR.
+
+COSA ASPETTARSI (onestamente)
+  - Validata su UN libro tedesco di matematica (pp. 194-220), dove ha ridotto i difetti visti in V5.
+    Su altri libri/lingue NON e' dimostrata: per questo AVVISI.txt e la revisione sulle formule restano necessari.
+  - Le formule sono ritagli dell'originale (non ricostruite): non possono diventare "sbagliate", ma possono
+    risultare tagliate o spostate. Una definizione a tratti ("für ...") resta con la parola tedesca nell'immagine.
+  - Le scansioni, le tabelle e le figure vettoriali NON sono state testate.
+  - Il rapporto non vede gli errori di significato della traduzione: leggi con l'originale accanto.
+
+DOPO LA PROVA
+  Dimmi lingua e pagine del PDF nuovo e cosa vedi di sbagliato (pagina + cosa): lo correggo in modo generale.
+
+FIGURE (aggiunto il 11 novembre 2026)
+  - Le figure (disegni vettoriali, con le loro etichette e la legenda) restano UN'immagine intera, con la didascalia
+    ("Abb. 1.5 ...") tradotta sotto. Le scritte DENTRO il disegno restano nella lingua originale.
+  - Le tabelle non sono cambiate. Le figure fatte di sola immagine erano gia' conservate.
+  - Per tornare al comportamento precedente: aggiungi --senza-figure al comando del motore.
+  - Corretto anche un difetto generale: in alcuni PDF i numeri dei blocchi di testo non coincidevano con quelli delle
+    parole e il testo risultava mescolato o mancante (successe in circa 4 pagine su 10 del libro di ingegneria).
+    Le pagine di AVVISI.txt lo segnalano ("parole riassegnate per posizione").
+  - Prova di non-regressione: sul libro di matematica (pp. 194-220) il risultato e' identico al motore precedente.
+  - Backup dei motori precedenti: cartella backup/.
