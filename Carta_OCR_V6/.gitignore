@@ -6,3 +6,11 @@ backup/
 *cache.json
 __pycache__/
 .DS_Store
+
+# Testo dei libri e risultati: MAI pubblicare (copyright)
+prototipo_ibrido/lavoro/
+prototipo_ibrido/uscita/
+strumenti_test/prove_deepseek/
+cache*.json
+*.rapporto.json
+*.raw.txt

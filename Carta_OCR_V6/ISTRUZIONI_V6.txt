@@ -49,3 +49,29 @@ FIGURE (aggiunto il 11 novembre 2026)
     Le pagine di AVVISI.txt lo segnalano ("parole riassegnate per posizione").
   - Prova di non-regressione: sul libro di matematica (pp. 194-220) il risultato e' identico al motore precedente.
   - Backup dei motori precedenti: cartella backup/.
+
+CORREZIONI DEL 12 NOVEMBRE 2026 (formule e parole lasciate in tedesco)
+  - Segni sparsi ('-', '=>', parentesi grandi, apici, frazioni in linea) che il PDF mette in blocchi separati ora si
+    fondono con la riga di testo a cui appartengono (prima finivano in cima alla pagina, tagliati, e sparivano dalla riga).
+  - '+' e '|' contano come matematica: 'a+b' e '|a|' non vengono piu' mandati a Qwen come testo (che li "ripuliva").
+  - Parole in tondo scambiate per variabili ('Zahl', 'Ziel', 'Weg', 'Form', 'Zeit'): se il testo e' in tondo e non in
+    corsivo, e' una parola e viene tradotta.
+  - Pagine a colonna singola: gli elementi si ordinano per posizione verticale (l'ordine dei blocchi del PDF non e'
+    sempre quello di lettura).
+  - Verificato: libro di matematica e capitolo 4 delle PDE restano uguali o migliorano (pagine cambiate controllate a campione).
+  - NON risolto: alcune righe di dimostrazione con molte formule (es. casi 3-4 a p.34 del libro di economia) perdono
+    ancora un segno o lasciano una riga tedesca ritagliata; coefficienti binomiali in linea (p.37) ancora spezzati.
+  - Backup dei motori precedenti: cartella backup/.
+
+FINESTRA GRAFICA (aggiunta il 12 novembre 2026)
+  - Doppio clic su Avvia_Frontend.command (cartella 05_V6_in_sviluppo), oppure dal Terminale:
+        PY="$HOME/Library/Application Support/CartaOCR/runtime/bin/python3"
+        "$PY" "$HOME/Desktop/CartaOCR_Progetto/05_V6_in_sviluppo/frontend_v6.py"
+  - 1) "Scegli il libro (PDF)": il file resta dov'e', non viene copiato ne' caricato da nessuna parte.
+    2) Scrivi pagina iniziale e finale (oppure clicca un capitolo dell'indice, se il PDF ce l'ha). Le due anteprime
+       mostrano le pagine scelte: i numeri sono quelli del lettore PDF, non quelli stampati sul libro.
+    3) "TRADUCI". Barra di avanzamento, tempo trascorso/stimato, registro; "Ferma" interrompe tutto (anche il motore).
+  - A fine lavoro: "Apri cartella risultati", "Apri PDF tradotto", "Apri AVVISI".
+  - Usa solo Tkinter e pymupdf (gia' presenti); la traduzione parte tramite avvia_v6.py, quindi con rete bloccata a
+    livello di sistema, e crea la solita cartella Risultati_V6/<nome>_p<da>-<a>_<data ora>/.
+  - Se la lista capitoli e' vuota il PDF non ha indice: scrivi le pagine a mano.

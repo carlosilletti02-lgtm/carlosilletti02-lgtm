@@ -49,15 +49,21 @@ SUPPORT = Path.home() / 'Library/Application Support/CartaOCR'
 DEFAULT_MODEL = SUPPORT / 'models/qwen3.5-9b'
 USER_GLOSSARY = SUPPORT / 'glossario.json'
 PROMPT_VERSION = 'v6.0'
+ENGINE_VERSION = '6.7 (12 nov 2026)'   # vedi CAMBIAMENTI.md
 PAGE_W, PAGE_H = 595.28, 841.89
 MARGIN = 51
 BODY_SIZE = 10.9
 LINE_HEIGHT = 16.2
 BOTTOM = PAGE_H - 55
+# --- REGOLE DI IMPAGINAZIONE (un solo posto, modificabili) -------------------------------------------------------
+GAP_DISPLAY = 8.0      # spazio (pt) sopra e sotto una formula display: il testo non la tocca mai
+GAP_KEEP = 24.0        # equazioni piu' vicine di cosi' nel PDF originale restano INSIEME sulla stessa pagina
+PAD_DISPLAY_X = 3.5    # margini dei ritagli display. NON alzarli: 4 pt in verticale fanno entrare pezzi della riga sopra
+PAD_DISPLAY_Y = 2.0    # e non risolvono le parentesi grandi tagliate (serve misurare l'ingombro reale dei glifi)
 MAX_CHARS, MAX_TAGS = 1100, 16
 
 TAG_RE = re.compile(r'<([FE])(\d+)>')
-MATH_CHARS = set('∑∏∫∮√∞≤≥≈≠≡∂∇∈∉⊂⊆⊃⊇∪∩∀∃→←↔⇒⇔⊗⊕⊥∥⟂⋅·≃≅⟨⟩∧∨ℝℂℕℤℚαβγδεζηθικλμνξοπρστυφχψω∆Δ⇀↦±∓=<>^_×÷')
+MATH_CHARS = set('∑∏∫∮√∞≤≥≈≠≡∂∇∈∉⊂⊆⊃⊇∪∩∀∃→←↔⇒⇔⊗⊕⊥∥⟂⋅·≃≅⟨⟩∧∨ℝℂℕℤℚαβγδεζηθικλμνξοπρστυφχψω∆Δ⇀↦±∓=<>^_×÷+|‖')
 MATH_NAMES = {'lim', 'inf', 'sup', 'sin', 'cos', 'tan', 'div', 'grad', 'det', 'ker', 'max', 'min', 'argmax', 'argmin'}
 ROMAN_BULLET = re.compile(r'^\(?[ivxlcdm]{1,5}\)[,.]?$', re.I)
 REF_PAREN = re.compile(r'^\(\d+(?:\.\d+)+\)[.,;:]?$')
@@ -189,6 +195,15 @@ def is_bracket_fragment(t):
 SPLIT_TAIL = re.compile(r'^(?P<head>.+?)(?P<tail>[-–][^\W\d_]{4,}[^\w]*)$')
 
 
+GLUED_TAIL = re.compile(r'^(?P<head>.*?[^a-zäöüß\s])(?P<tail>[a-zäöüß]{3,}[.,;:]*)$')
+PATTERN_ONLY = re.compile(r'[XYZFGWSAB][a-z]{1,3}|[fgwxy][a-z]?(?:nk|n|k|i|j|pi|ij)')
+
+
+def is_italic_span(sp):
+    f = str(sp.get('font', '')).lower()
+    return bool(sp.get('flags', 0) & 2) or any(k in f for k in ('ital', 'obli', 'cmmi', 'mathit', 'mtmi'))
+
+
 def split_embedded(words, ctx):
     """'C2,σ-Regularität' -> formula 'C2,σ' + testo '-Regularität' (stesso confine tipografico del PDF)."""
     out = []
@@ -200,7 +215,7 @@ def split_embedded(words, ctx):
             x0, x1 = w[0], w[2]
             bx = None
             letters = m.group('tail').lstrip('-–')[:4]
-            for sx0, sx1, st in ctx.spans.get((int(w[5]), int(w[6])), []):
+            for sx0, sx1, st, _it in ctx.spans.get((int(w[5]), int(w[6])), []):
                 if sx0 > x0 + 1 and sx1 <= x1 + 1.5 and letters in st:
                     bx = sx0
                     break
@@ -208,8 +223,32 @@ def split_embedded(words, ctx):
                 bx = x0 + (x1 - x0) * len(m.group('head')) / len(t)
             out.append((x0, w[1], bx, w[3], m.group('head'), w[5], w[6], w[7]))
             out.append((bx, w[1], x1, w[3], m.group('tail'), w[5], w[6], w[7]))
-        else:
-            out.append(w)
+            continue
+        g = GLUED_TAIL.match(t)
+        head_txt = g.group('head') if g else ''
+        # la parte di formula deve contenere un segno matematico vero (non una semplice lettera maiuscola: 'E'+'chtzeit')
+        if g and word_is_math(head_txt) and (any(is_math_char(c) for c in head_txt) or head_txt[-1] in ')]}' or head_txt[-1].isdigit()):
+            tail = g.group('tail').rstrip('.,;:').lower()
+            natural_tail = (tail not in MATH_NAMES and (tail in VETO or tail in RESIDUO or (
+                tail in LEXICON and len(tail) >= 4 and re.search('[aeiouäöü]', tail))
+                or (len(tail) >= 6 and len(re.findall('[aeiouäöü]', tail)) >= 2 and not re.search('[^aeiouäöü]{5}', tail))))
+            if natural_tail:
+                x0, x1 = w[0], w[2]
+                letters = tail[:3]
+                bx = None
+                for sx0, sx1, st, it in ctx.spans.get((int(w[5]), int(w[6])), []):     # confine tipografico, se esiste
+                    if (not it) and sx0 > x0 + 1.5 and sx1 <= x1 + 1.5 and st.strip().lower().startswith(letters):
+                        bx = sx0
+                        break
+                if bx is None and FONT_OBJ is not None:                                  # altrimenti: proporzione dei glifi
+                    lh, lt = FONT_OBJ.text_length(g.group('head'), fontsize=10), FONT_OBJ.text_length(t, fontsize=10)
+                    if lt > 0:
+                        bx = x0 + (x1 - x0) * lh / lt
+                if bx is not None and x0 + 1.0 < bx < x1 - 1.0:
+                    out.append((x0, w[1], bx, w[3], g.group('head'), w[5], w[6], w[7]))
+                    out.append((bx, w[1], x1, w[3], g.group('tail'), w[5], w[6], w[7]))
+                    continue
+        out.append(w)
     return out
 
 
@@ -227,13 +266,37 @@ def lines_of(words, ctx):
             k = parent[k]
         return k
     xr = {k: (min(w[0] for w in groups[k]), max(w[2] for w in groups[k])) for k in keys}
-    for i, a in enumerate(keys):
-        ba = ctx.baselines.get(a)
-        for b in keys[i + 1:]:
-            bb = ctx.baselines.get(b)
-            if ba is None or bb is None:
+    yr = {k: (min(w[1] for w in groups[k]), max(w[3] for w in groups[k])) for k in keys}
+
+    def near_x(a, b):
+        return not (xr[a][1] + 8 < xr[b][0] or xr[b][1] + 8 < xr[a][0])
+
+    def overlap(a, b):
+        return min(yr[a][1], yr[b][1]) - max(yr[a][0], yr[b][0])
+    main = [k for k in keys if len(groups[k]) >= 3 and ctx.baselines.get(k) is not None]   # righe di testo
+    sat = [k for k in keys if k not in main]                                                # frammenti piccoli
+    for i, a in enumerate(main):                       # righe di testo: si fondono solo se hanno la STESSA baseline
+        for b in main[i + 1:]:
+            if abs(ctx.baselines[a] - ctx.baselines[b]) < 0.5 * ctx.body and near_x(a, b):
+                parent[find(b)] = find(a)
+    for k in sat:                                      # ogni frammento si attacca a UNA sola riga (mai ponti fra due righe)
+        bk = ctx.baselines.get(k)
+        cands = []
+        for m in main:
+            if bk is None or near_x(k, m) is False:
                 continue
-            if abs(ba - bb) < 0.5 * ctx.body and not (xr[a][1] + 8 < xr[b][0] or xr[b][1] + 8 < xr[a][0]):
+            ov = overlap(k, m)
+            if abs(bk - ctx.baselines[m]) < 0.8 * ctx.body or ov >= 0.4 * min(yr[k][1] - yr[k][0], yr[m][1] - yr[m][0]):
+                cands.append((abs(bk - ctx.baselines[m]), -ov, m))
+        if cands:
+            parent[find(k)] = find(min(cands)[2])
+    for i, a in enumerate(sat):                        # frammenti senza riga di testo vicina: regola per baseline
+        ba = ctx.baselines.get(a)
+        if find(a) != a or ba is None:
+            continue
+        for b in sat[i + 1:]:
+            bb = ctx.baselines.get(b)
+            if bb is not None and find(b) == b and abs(ba - bb) < 0.5 * ctx.body and near_x(a, b):
                 parent[find(b)] = find(a)
     merged = defaultdict(list)
     for k in keys:
@@ -281,6 +344,19 @@ def classify_words(lines, ctx):
         i += 1
     flags = [(not forced[k]) and (word_is_math(texts[k]) or unrenderable(texts[k])) for k in range(n)]
 
+    def italic_at(w):
+        cx = (w[0] + w[2]) / 2
+        for sx0, sx1, st, it in ctx.spans.get((int(w[5]), int(w[6])), []):
+            if sx0 - 0.5 <= cx <= sx1 + 0.5:
+                return it
+        return None
+    for k in range(n):                                      # "Zahl", "Ziel", "Weg", "Form": in tondo = parola
+        if flags[k] and not forced[k]:
+            t = texts[k].strip('.,;:!?()[]')
+            if (PATTERN_ONLY.fullmatch(t) and not any(is_math_char(c) for c in texts[k])
+                    and italic_at(flat[k]) is False):
+                flags[k] = False
+
     def near(a, b, limit):
         return line_id[a] == line_id[b] and -1.5 <= flat[b][0] - flat[a][2] <= limit
 
@@ -319,10 +395,10 @@ def classify_words(lines, ctx):
     return flat, texts, flags, line_id, base_of
 
 
-def image_crop(page, rect, ctx=None, baseline=None, scale=3.0, pad_x=2.0, pad_r=None):
+def image_crop(page, rect, ctx=None, baseline=None, scale=3.0, pad_x=2.0, pad_r=None, pad_y=2.0):
     r = fitz.Rect(rect)
     r.x0 -= pad_x; r.x1 += (pad_x if pad_r is None else pad_r)
-    r.y0 -= 2.0; r.y1 += 2.0
+    r.y0 -= pad_y; r.y1 += pad_y
     r &= page.rect
     if ctx is not None:                                     # controllo: righe vicine catturate in parte
         for ln in ctx.page_lines:
@@ -445,6 +521,74 @@ def is_heading(text):
     if len(t) > 140:
         return False
     return t.startswith(TITOLI) or bool(re.match(r'^<F\d+>\s+[A-ZÄÖÜ]', t) and len(t) < 90) or bool(re.match(r'^\d+(\.\d+)+\s', t))
+
+
+def merge_inline_blocks(entries, ctx):
+    """In alcuni PDF i segni matematici ('−', '⇒', apici, parentesi, frazioni in linea) sono blocchi a se' e fuori
+    dall'ordine di lettura: verrebbero trattati come equazioni e finirebbero altrove. Un blocco piccolo, senza parole
+    della lingua, che sta dentro una RIGA DI TESTO della pagina (le righe si ricostruiscono da tutti i blocchi) viene
+    fuso con il blocco che possiede quella riga."""
+    def natural_n(ws):
+        return sum(1 for w in ws if NATURAL.fullmatch(norm_lig(w[4]).strip('.,;:!?()')) and
+                   norm_lig(w[4]).strip('.,;:!?()').lower() not in MATH_NAMES)
+    frags = []
+    for i, e in enumerate(entries):
+        if 'words' in e and e['words']:
+            for _main, ws in lines_of(e['words'], ctx):
+                r = fitz.Rect(ws[0][:4])
+                for w in ws[1:]:
+                    r |= fitz.Rect(w[:4])
+                frags.append({'r': r, 'nw': len(ws), 'nn': natural_n(ws), 'own': i})
+    rows = []
+    for f in sorted(frags, key=lambda f: (f['r'].y0 + f['r'].y1) / 2):
+        for row in rows:
+            ov = min(f['r'].y1, row['r'].y1) - max(f['r'].y0, row['r'].y0)
+            gap = max(f['r'].x0 - row['r'].x1, row['r'].x0 - f['r'].x1, 0)
+            if ov >= 0.6 * min(f['r'].height, row['r'].height) and gap <= 25:
+                row['r'] = row['r'] | f['r']
+                row['nw'] += f['nw']
+                row['nn'] += f['nn']
+                row['own'][f['own']] += f['nn']
+                break
+        else:
+            rows.append({'r': fitz.Rect(f['r']), 'nw': f['nw'], 'nn': f['nn'], 'own': Counter({f['own']: f['nn']})})
+    tx = [e['rect'] for e in entries if 'words' in e and e['words'] and natural_n(e['words']) >= 3]
+    left = min((r.x0 for r in tx), default=0.0)
+    right = max((r.x1 for r in tx), default=left + 1.0)
+    # riga di testo vera (non di formula): >= 2 parole della lingua, oppure >= 1 se allineata al margine del testo
+    # (le righe rientrate con una sola parola funzionale sono voci di definizioni a tratti, restano formule)
+    text_rows = [row for row in rows if row['nw'] >= 3 and (row['nn'] >= 2 or (
+        row['nn'] >= 1 and row['r'].x0 <= left + 0.06 * (right - left)))]
+    absorbed = {}
+    atom_rows = [row for row in rows if row['nw'] >= 3 and row['nn'] >= 1]
+    for j, b in enumerate(entries):
+        if 'words' not in b or not b['words'] or len(b['words']) > 40 or b['rect'].height > 4 * ctx.body:
+            continue
+        if natural_n(b['words']) > 0:
+            continue
+        cy = (b['rect'].y0 + b['rect'].y1) / 2
+        for row in (atom_rows if b.get('atom') else text_rows):
+            if (row['r'].y0 - 1.5 <= cy <= row['r'].y1 + 1.5 and row['r'].x0 - 15 <= b['rect'].x0
+                    and b['rect'].x1 <= row['r'].x1 + 6):
+                owner = max((k for k in row['own'] if k != j), key=lambda k: row['own'][k], default=None)
+                if owner is not None and row['own'][owner] > 0:
+                    absorbed[j] = owner
+                    break
+    if not absorbed:
+        return entries
+    def final(i):
+        while i in absorbed:
+            i = absorbed[i]
+        return i
+    for j in sorted(absorbed):
+        i = final(j)
+        if i == j:
+            continue
+        a_, b_ = entries[i], entries[j]
+        a_['words'] = a_['words'] + b_['words']
+        a_['rect'] = a_['rect'] | b_['rect']
+        a_['raw'] = a_['raw'] + ' ' + b_['raw']
+    return [e for k, e in enumerate(entries) if k not in absorbed]
 
 
 def merge_split_lines(entries, ctx):
@@ -603,7 +747,8 @@ def collect_page(page):
                     sizes[round(sp.get('size', 0), 1)] += n
             if c:
                 baselines[(bno, lno)] = c.most_common(1)[0][0]
-            spans[(bno, lno)] = [(sp['bbox'][0], sp['bbox'][2], str(sp.get('text', ''))) for sp in line.get('spans', [])]
+            spans[(bno, lno)] = [(sp['bbox'][0], sp['bbox'][2], str(sp.get('text', '')), is_italic_span(sp))
+                                 for sp in line.get('spans', [])]
             page_lines.append(fitz.Rect(line['bbox']))
     body = sizes.most_common(1)[0][0] if sizes else 10.0
     heights = sorted(w[3] - w[1] for ws in all_words.values() for w in ws) or [10.0]
@@ -613,7 +758,14 @@ def collect_page(page):
     for bid, block in enumerate(raw):
         bno = block.get('number', bid)
         if block.get('type') == 1:
-            entries.append({'visual': fitz.Rect(block['bbox'])})
+            r_img = fitz.Rect(block['bbox'])
+            if r_img.width <= 3.0 * body and r_img.height <= 2.2 * body and r_img.width > 0 and r_img.height > 0:
+                bno_i = block.get('number', bid)               # simbolo incorporato come immagine (es. ℝ): atomo di formula
+                ctx.baselines[(bno_i, 0)] = r_img.y1 - 0.25 * r_img.height
+                entries.append({'words': [(r_img.x0, r_img.y0, r_img.x1, r_img.y1, 'ℝ', bno_i, 0, 0)], 'rect': r_img,
+                                'raw': 'ℝ', 'size': 0, 'atom': True})
+            else:
+                entries.append({'visual': r_img})
             continue
         if block.get('type') != 0:
             continue
@@ -625,6 +777,7 @@ def collect_page(page):
         entries.append({'words': split_embedded(all_words.get(bno, []), ctx), 'rect': fitz.Rect(block['bbox']),
                         'raw': raw_text, 'size': bsz.most_common(1)[0][0] if bsz else 0})
     entries = merge_split_lines(entries, ctx)
+    entries = merge_inline_blocks(entries, ctx)
     absorbed, anchors = set(), defaultdict(list)
     for region, idxs, anchor in (find_figures(page, entries, body) if FIGURES_ON else []):
         absorbed |= idxs
@@ -667,6 +820,11 @@ def collect_page(page):
                            'heading': is_heading(ptext)})
     for region in anchors.get(len(entries), []):
         result.append({'kind': 'figure', 'rect': region})
+    pw = page.rect.width
+    left_col = [it for it in result if it['kind'] == 'prose' and it['rect'].x1 < 0.55 * pw and it['rect'].width < 0.5 * pw]
+    right_col = [it for it in result if it['kind'] == 'prose' and it['rect'].x0 > 0.45 * pw and it['rect'].width < 0.5 * pw]
+    if not (len(left_col) >= 4 and len(right_col) >= 4):    # colonna singola: l'ordine dei blocchi del PDF non e' garantito
+        result.sort(key=lambda it: (round(it['rect'].y0), it['rect'].x0))
     left = min([e['rect'].x0 for e in entries if 'words' in e and e['words']] or [0.0])
     result = absorb_fragments(result, left, page.rect.width)
     result = group_equation_blocks(page, result, ctx)
@@ -711,7 +869,7 @@ def group_equation_blocks(page, items, ctx, gap_limit=19.0):
         area = fitz.Rect(pending[0])
         for r in pending[1:]:
             area |= fitz.Rect(r)
-        grouped.append({'kind': 'equation', 'visual': image_crop(page, area, ctx, pad_x=3.5), 'parts': len(pending), 'rect': area})
+        grouped.append({'kind': 'equation', 'visual': image_crop(page, area, ctx, pad_x=PAD_DISPLAY_X, pad_y=PAD_DISPLAY_Y), 'parts': len(pending), 'rect': area})
         pending.clear()
 
     for item in items:
@@ -883,7 +1041,9 @@ def validate(src, out):
         return 'tag modificati o mancanti', []
     if [t for t in s_tags if t[0] == 'E'] != [t for t in o_tags if t[0] == 'E']:
         return 'ordine delle equazioni modificato', []
-    if sorted(re.findall(r'\d+', TAG_RE.sub(' ', src))) != sorted(re.findall(r'\d+', TAG_RE.sub(' ', out))):
+    def digits(t):
+        return sorted(re.findall(r'\d+', re.sub(r'\b\d{1,2}\.(?=\s)', ' ', TAG_RE.sub(' ', t))))   # '1.' ordinale/elenco: escluso
+    if digits(src) != digits(out):
         return 'numeri modificati', []
     words = re.findall(r'[^\W\d_]+', TAG_RE.sub(' ', out).lower())
     left = [w for w in words if w in RESIDUO]
@@ -1239,16 +1399,27 @@ class Writer:
             self.emit_line(line, avail)
         self.y += 7.8 if heading else 5.3
 
-    def write_display(self, crop):
+    def display_size(self, crop):
         avail = PAGE_W - 2 * MARGIN
         scale = min(self.factor, avail / max(1, crop['width']), (PAGE_H - 175) / max(1, crop['height']))
+        return crop['width'] * scale, crop['height'] * scale, scale
+
+    def reserve(self, crops):
+        """Equazioni contigue: se stanno insieme in una pagina, vanno INSIEME (mai una di qua e una di la')."""
+        total = sum(self.display_size(c)[1] + 2 * GAP_DISPLAY for c in crops)
+        if total <= BOTTOM - 82:
+            self.need(total)
+
+    def write_display(self, crop):
+        avail = PAGE_W - 2 * MARGIN
+        w, h, scale = self.display_size(crop)
         if scale < 0.75 * self.factor:
             self.avvisi.append(f'equazione ridotta a {scale / self.factor:.2f} del formato originale')
-        w, h = crop['width'] * scale, crop['height'] * scale
-        self.need(h + 16)
+        self.need(h + 2 * GAP_DISPLAY)
         left = MARGIN + (avail - w) / 2
-        self.page.insert_image(fitz.Rect(left, self.y + 8, left + w, self.y + 8 + h), stream=crop['image'], keep_proportion=False)
-        self.y += h + 16
+        self.page.insert_image(fitz.Rect(left, self.y + GAP_DISPLAY, left + w, self.y + GAP_DISPLAY + h),
+                               stream=crop['image'], keep_proportion=False)
+        self.y += h + 2 * GAP_DISPLAY
 
     def save(self, target):
         self.doc.save(str(target), garbage=3, deflate=True)
@@ -1290,7 +1461,7 @@ def main():
     translator = Translator(model, load_glossary(), cache_path, fake=args.fake, retry_failed=args.riprova_falliti)
     writer = Writer(font, args.fake)
     report = {'versione': 'v6-generale', 'originale': str(source), 'output': str(output), 'offline': True,
-              'test_senza_qwen': args.fake, 'prompt': PROMPT_VERSION, 'modello': translator.model_name,
+              'test_senza_qwen': args.fake, 'versione_motore': ENGINE_VERSION, 'prompt': PROMPT_VERSION, 'modello': translator.model_name,
               'nota': 'Controlli automatici in "avvisi". Resta necessaria una revisione matematica manuale.',
               'pagine': [], 'unita_tradotte': 0, 'equazioni_display': 0, 'formule_inline': 0,
               'unita_fuse_attraverso_equazioni': 0, 'figure_conservate': 0, 'parole_riallineate': 0, 'ritagli_con_testo_vicino': 0, 'da_rivedere': 0, 'pagine_italiane': 0}
@@ -1312,12 +1483,22 @@ def main():
                        'da_rivedere': [], 'avvisi': []}
                 report['ritagli_con_testo_vicino'] += info['contaminati']
                 report['parole_riallineate'] += info['riallineate']
-                for it in items:
+                for idx, it in enumerate(items):
                     if it['kind'] == 'figure':
                         writer.write_display(image_crop(page, it['rect'], scale=4.0, pad_x=3.0))
                         rec['figure_conservate'] = rec.get('figure_conservate', 0) + 1
                         report['figure_conservate'] += 1
                         continue
+                    if it['kind'] == 'equation' and 'visual' in it and not it.get('_g'):
+                        grp, j = [it], idx + 1
+                        while (j < len(items) and items[j]['kind'] == 'equation' and 'visual' in items[j]
+                               and max(items[j]['rect'].y0 - grp[-1]['rect'].y1, 0) <= GAP_KEEP):
+                            grp.append(items[j])
+                            j += 1
+                        if len(grp) > 1:
+                            for g in grp[1:]:
+                                g['_g'] = True
+                            writer.reserve([g['visual'] for g in grp])
                     if it['kind'] in ('equation', 'visual'):
                         crop = it.get('visual') or image_crop(page, it['rect'])
                         writer.write_display(crop)
