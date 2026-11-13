@@ -1,8 +1,5 @@
 # Hi, I'm Carlo Silletti! 👋
 
-🎓 Civil and Environmental Engineering Graduate  
-🏛️ Politecnico di Bari, Italy
-
 ## About Me
 
 I am a Civil and Environmental Engineering graduate with a strong interest in structural mechanics, numerical methods, and computational engineering.
@@ -23,4 +20,4 @@ I am a Civil and Environmental Engineering graduate with a strong interest in st
 ## Education
 
 Bachelor's Degree in Civil and Environmental Engineering  
-Politecnico di Bari — September 2026
+
